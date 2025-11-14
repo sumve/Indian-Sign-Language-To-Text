@@ -1,0 +1,49 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+venv2/
+.venv/
+
+# Dataset and large files
+dataSet/
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Model weights and logs (optional)
+*.h5
+*.pkl
+*.ckpt
+*.pb
+*.tflite
+*.onnx
+
+# Audio/temp files
+*.mp3
+*.wav
+output.mp3
+
+# System / OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+dataSet/
+*.jpg
+*.png
+*.mp3
+*.h5
+*.zip
+*.tar
+*.rar
+__pycache__/
+venv/
