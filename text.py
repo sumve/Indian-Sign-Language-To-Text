@@ -25,9 +25,9 @@ mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.6,
-    min_tracking_confidence=0.6
+    max_num_hands=2,               # <--- allow 2 hands
+    min_detection_confidence=0.5,  # same as your second script
+    min_tracking_confidence=0.5
 )
 
 # -----------------------------
@@ -36,13 +36,13 @@ hands = mp_hands.Hands(
 
 display_text = ""
 last_prediction = None
-neutral_seen = True
 pad = 40
 cooldown_time = 2.0
 last_accept_time = 0
 same_pred_count = 0
 required_stability_frames = 15
 current_word = ""
+CONF_THRESHOLD = 0.0  # set >0 (e.g. 0.7) if you want confidence gating
 
 # -----------------------------
 # Function to play sound
@@ -56,14 +56,12 @@ def play_sound():
     tts = gTTS(text=display_text, lang='en')
     audio_file = "output.mp3"
     tts.save(audio_file)
-    # On Windows use start, on others try default opener
     try:
         if os.name == 'nt':
             os.startfile(audio_file)
         else:
             os.system(f"xdg-open {audio_file} &")
     except Exception:
-        # fallback
         os.system(f"start {audio_file}")
 
 # -----------------------------
@@ -81,12 +79,11 @@ def start_tkinter_ui():
     btn_play.pack(pady=10)
 
     def update_text():
-        lbl_text.config(text=f"Detected Text: {display_text}")
+        lbl_text.config(text=display_text)
         root.after(500, update_text)
 
     update_text()
     root.mainloop()
-
 
 ui_thread = threading.Thread(target=start_tkinter_ui, daemon=True)
 ui_thread.start()
@@ -110,15 +107,23 @@ while True:
     prediction = None
 
     if results.multi_hand_landmarks:
-        x_min, y_min, x_max, y_max = 1.0, 1.0, 0.0, 0.0
+        # unified bounding box over ALL detected hands
+        x_min, y_min = 1.0, 1.0
+        x_max, y_max = 0.0, 0.0
+
         for hand_landmarks in results.multi_hand_landmarks:
             for lm in hand_landmarks.landmark:
-                x_min, y_min = min(x_min, lm.x), min(y_min, lm.y)
-                x_max, y_max = max(x_max, lm.x), max(y_max, lm.y)
+                x_min = min(x_min, lm.x)
+                y_min = min(y_min, lm.y)
+                x_max = max(x_max, lm.x)
+                y_max = max(y_max, lm.y)
             mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-        x1, y1 = max(0, int(x_min * w) - pad), max(0, int(y_min * h) - pad)
-        x2, y2 = min(w, int(x_max * w) + pad), min(h, int(y_max * h) + pad)
+        # convert to pixels and pad
+        x1 = max(0, int(x_min * w) - pad)
+        y1 = max(0, int(y_min * h) - pad)
+        x2 = min(w, int(x_max * w) + pad)
+        y2 = min(h, int(y_max * h) + pad)
 
         if x2 > x1 and y2 > y1:
             roi = frame[y1:y2, x1:x2]
@@ -126,63 +131,69 @@ while True:
             roi_norm = roi_resized / 255.0
             roi_input = np.expand_dims(roi_norm, axis=0)
 
-            pred = model.predict(roi_input, verbose=0)
+            pred = model.predict(roi_input, verbose=0)[0]
             class_idx = np.argmax(pred)
+            confidence = float(np.max(pred))
             prediction = class_labels[class_idx]
-            if prediction == last_prediction:
-                same_pred_count += 1
-            else:
-                same_pred_count = 0
-            last_prediction = prediction
 
+            # optional: ignore low-confidence predictions
+            if confidence < CONF_THRESHOLD:
+                prediction = None
 
-            # Register prediction only once after neutral
-            if same_pred_count >= required_stability_frames and (time.time() - last_accept_time) > cooldown_time:
-                if prediction == "SPACE":
-                    current_word += " "
-                    print("Added SPACE")
-                elif prediction == "CLEAR":
-                    current_word = ""
-                    print("Cleared text")
-                elif prediction == "DELETE":
-                    current_word = current_word[:-1]
-                    print("Deleted last character")
+            if prediction is not None:
+                # stability logic
+                if prediction == last_prediction:
+                    same_pred_count += 1
                 else:
-                    current_word += prediction
-                    print(f"Accepted: {prediction} | Current word: {current_word}")
-                display_text = current_word
-                last_accept_time = time.time()
-
+                    same_pred_count = 0
                 last_prediction = prediction
-                neutral_seen = False
-                last_accept_time = time.time()
-                print(f"Accepted: {prediction} | Text: {display_text}")
+
+                # accept only after stable + cooldown
+                if same_pred_count >= required_stability_frames and (time.time() - last_accept_time) > cooldown_time:
+                    if prediction == "SPACE":
+                        current_word += " "
+                        print("Added SPACE")
+                    elif prediction == "CLEAR":
+                        current_word = ""
+                        print("Cleared text")
+                    elif prediction == "DELETE":
+                        current_word = current_word[:-1]
+                        print("Deleted last character")
+                    else:
+                        current_word += prediction
+                        print(f"Accepted: {prediction} | Current word: {current_word}")
+
+                    display_text = current_word
+                    last_accept_time = time.time()
+                    same_pred_count = 0  # reset after accepting
+
+                    print(f"Accepted: {prediction} | Text: {display_text}")
+
+            # draw ROI for debugging
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.imshow("ROI", roi_resized)
 
     else:
-        neutral_seen = True
+        same_pred_count = 0
+        last_prediction = None
+        prediction = None
+        blank_roi = np.zeros((128, 128, 3), dtype=np.uint8)
+        cv2.imshow("ROI", blank_roi)
 
-    # Always show the latest display text
+    # -----------------------------
+    # Overlay info on frame
+    # -----------------------------
     cv2.putText(frame, f"Text: {display_text}", (10, 100),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     if prediction:
         cv2.putText(frame, f"Detected: {prediction}", (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-
-    if prediction in ["SPACE", "CLEAR", "DELETE"]:
-        color = (0, 0, 255)  # red for control gestures
-    else:
-        color = (0, 255, 0)  # green for letters
-
-    cv2.putText(frame, f"Detected: {prediction}", (10, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     cv2.imshow("Sign to Text (Camera)", frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
-
 
 cap.release()
 cv2.destroyAllWindows()
