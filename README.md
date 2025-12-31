@@ -52,7 +52,8 @@ Stability and cooldown logic are applied to ensure accurate and readable text ou
   - Horizontal flips
   - Normalization (1/255)
 
-### Dataset Structure
+## Dataset Structure
+
 dataSet/
 ├── A/
 ├── B/
