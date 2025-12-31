@@ -2,7 +2,7 @@ import os
 import string
 
 # Base directory for dataset
-base_dir = "dataSet"
+base_dir = "DataSet"
 
 # Define labels (A–Z + 0–9)
 labels = list(string.ascii_uppercase) + [str(i) for i in range(10)]
