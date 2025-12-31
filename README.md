@@ -196,4 +196,3 @@ This project is intended for academic, research, and portfolio use.
 ## Citation
 
 If you use this project for research, coursework, or benchmarking, please reference this repository and include the gesture label mapping provided in `models/classes.txt` for reproducibility.
-
