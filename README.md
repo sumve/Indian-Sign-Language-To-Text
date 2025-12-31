@@ -53,7 +53,7 @@ Stability and cooldown logic are applied to ensure accurate and readable text ou
   - Normalization (1/255)
 
 ## Dataset Structure
-
+```
 dataSet/
 ├── A/
 ├── B/
@@ -103,6 +103,7 @@ dataSet/
 ├── Yes/
 ├── No/
 └── ILY/
+```
 
 ## Usage
 
@@ -161,18 +162,23 @@ python webcam.py
 
 ## Project Structure
 
-├── collect_data.py        # Dataset collection script
-├── train.py               # Model training script
-├── webcam.py              # Real-time inference + GUI
-├── plot.py                # Training curves visualization
-├── layers.py              # Model architecture inspection
-├── count.py               # Dataset class distribution check
-├── folders.py             # Dataset folder initialization
-├── models/
-│   ├── model.h5           # Trained model weights
-│   └── classes.txt        # Class label mapping
-├── dataSet/               # Gesture dataset (A–Z, 0–9, control gestures)
-└── README.md              # Project documentation
+A breakdown of the scripts and directories included in this project:
+
+```text
+.
+├── collect_data.py       # Dataset collection script
+├── train.py              # Model training script
+├── webcam.py             # Real-time inference + GUI
+├── plot.py               # Training curves visualization
+├── layers.py             # Model architecture inspection
+├── count.py              # Dataset class distribution check
+├── folders.py            # Dataset folder initialization
+├── models/               # Directory for saved models
+│   ├── model.h5          # Trained model weights
+│   └── classes.txt       # Class label mapping
+├── dataSet/              # Gesture dataset (A–Z, 0–9, control gestures)
+└── README.md             # Project documentation
+```
 
 ## Future Improvements
 
