@@ -3,6 +3,8 @@ from tensorflow.keras.models import load_model
 import pickle
 import os
 
+print(history.history.keys())
+
 # Load history if saved
 
 history_path = "models/history.pkl"

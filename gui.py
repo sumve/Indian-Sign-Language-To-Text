@@ -4,220 +4,332 @@ import mediapipe as mp
 import time
 import tkinter as tk
 from PIL import Image, ImageTk
-from gtts import gTTS
-import os
+import threading
+import pyttsx3
 from tensorflow.keras.models import load_model
+from wordfreq import top_n_list
 
-# =============================
-# Load model and labels
-# =============================
+# ===============================
+# CONFIG
+# ===============================
+IMAGE_MODEL_PATH = "models/model.h5"
+LANDMARK_MODEL_PATH = "models/landmark_model.h5"
+CLASSES_PATH = "models/classes.txt"
 
-model = load_model("models/model.h5")
-with open("models/classes.txt") as f:
-    class_labels = [l.strip() for l in f]
+IMG_SIZE = 224
+IMAGE_CONF_THRESH = 0.75
+LANDMARK_CONF_THRESH = 0.85
 
-# =============================
-# MediaPipe Hands
-# =============================
+STABLE_FRAMES = 12
+COOLDOWN_TIME = 0.8
 
+SPACE_TOKEN = "Space"
+CLEAR_TOKEN = "Clear"
+
+# ===============================
+# LOAD MODELS
+# ===============================
+image_model = load_model(IMAGE_MODEL_PATH)
+landmark_model = load_model(LANDMARK_MODEL_PATH)
+
+with open(CLASSES_PATH) as f:
+    CLASSES = [c.strip() for c in f.readlines()]
+
+# ===============================
+# TEXT TO SPEECH
+# ===============================
+tts_engine = pyttsx3.init("sapi5")
+tts_engine.setProperty("rate", 160)
+tts_engine.setProperty("volume", 1.0)
+voices = tts_engine.getProperty("voices")
+tts_engine.setProperty("voice", voices[1].id)
+
+# ===============================
+# MEDIAPIPE
+# ===============================
 mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+mp_draw = mp.solutions.drawing_utils
+
 hands = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
+    max_num_hands=2,
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6
 )
 
-# =============================
-# Global State
-# =============================
+# ===============================
+# LANDMARK UTILS
+# ===============================
+def normalize_hand(hand):
+    hand = hand - hand[0]
+    scale = np.linalg.norm(hand[9]) + 1e-6
+    return hand / scale
+
+def preprocess_landmarks(all_hands):
+    feats = []
+    for hand_lms in all_hands[:2]:
+        pts = np.array([[p.x, p.y, p.z] for p in hand_lms.landmark], dtype=np.float32)
+        pts = normalize_hand(pts)
+        feats.append(pts.reshape(-1))
+    if len(feats) == 1:
+        feats.append(np.zeros(63, dtype=np.float32))
+    return np.concatenate(feats).reshape(1, 126)
+
+# ===============================
+# SUGGESTIONS (NO DICTIONARY)
+# ===============================
+COMMON_WORDS = top_n_list("en", 50000)
+
+def get_current_word(text):
+    return text.split(" ")[-1] if text.strip() else ""
+
+def get_suggestions(prefix, limit=4):
+    if not prefix:
+        return []
+    prefix = prefix.lower()
+    out = []
+    for w in COMMON_WORDS:
+        if w.startswith(prefix):
+            out.append(w.upper())
+            if len(out) == limit:
+                break
+    return out
+
+# ===============================
+# GUI SETUP
+# ===============================
+root = tk.Tk()
+root.title("Sign Language To Text & Speech Conversion")
+root.geometry("1000x700")
+
+tk.Label(root, text="Sign Language To Text & Speech Conversion",
+         font=("Courier", 22, "bold")).pack(pady=10)
+
+cam_label = tk.Label(root)
+cam_label.pack()
+info_frame = tk.Frame(root)
+info_frame.pack(pady=20)
+char_var = tk.StringVar(value="Character : ")
+sent_var = tk.StringVar(value="Sentence : ")
+
+tk.Label(
+    info_frame,
+    textvariable=char_var,
+    font=("Courier", 16)
+).pack(pady=5)
+
+tk.Label(
+    info_frame,
+    textvariable=sent_var,
+    font=("Courier", 16)
+).pack(pady=5)
+
+
+# ---------- Suggestions UI ----------
+# ---------- Word suggestions row ----------
+suggestion_row = tk.Frame(info_frame)
+suggestion_row.pack(pady=(15, 5))
+
+tk.Label(
+    suggestion_row,
+    text="Word Suggestions:",
+    font=("Courier", 14, "bold")
+).pack(side="left", padx=(0, 10))
+
+suggestion_frame = tk.Frame(suggestion_row)
+suggestion_frame.pack(side="left")
+suggestion_buttons = []
 
 sentence = ""
-current_word = ""
-display_text = ""
-last_prediction = None
-same_pred_count = 0
-required_stability_frames = 15
-cooldown_time = 2.0
-last_accept_time = 0
-pad = 40
 
-fps = 0
-frame_count = 0
-start_time = time.time()
-
-# =============================
-# Audio
-# =============================
-
-def play_sound():
-    if display_text.strip():
-        gTTS(display_text).save("output.mp3")
-        os.startfile("output.mp3")
-
-def clear_text():
-    global sentence, current_word, display_text
+def clear_sentence():
+    global sentence
     sentence = ""
-    current_word = ""
-    display_text = ""
+    sent_var.set("Sentence : ")
+    update_suggestions()
 
-# =============================
-# Tkinter GUI
-# =============================
+def delete_last_char():
+    global sentence
+    if sentence:
+        sentence = sentence[:-1]
+        sent_var.set(f"Sentence : {sentence}")
+        update_suggestions()
 
-root = tk.Tk()
-root.title("Sign Language To Text Conversion")
-root.geometry("1200x800")
+def speak_sentence():
+    if not sentence.strip():
+        return
+    threading.Thread(
+        target=lambda: (tts_engine.say(sentence), tts_engine.runAndWait()),
+        daemon=True
+    ).start()
 
-title = tk.Label(
-    root,
-    text="Sign Language To Text Conversion",
-    font=("Arial", 22, "bold")
-)
-title.pack(pady=10)
+def apply_suggestion(word):
+    global sentence
+    parts = sentence.rstrip().split(" ")
+    parts[-1] = word
+    sentence = " ".join(parts) + " "
+    sent_var.set(f"Sentence : {sentence}")
+    update_suggestions()
 
-main_frame = tk.Frame(root)
-main_frame.pack()
+def update_suggestions():
+    for b in suggestion_buttons:
+        b.destroy()
+    suggestion_buttons.clear()
 
-cam_label = tk.Label(main_frame)
-cam_label.grid(row=0, column=0, padx=10)
+    current = get_current_word(sentence)
+    for w in get_suggestions(current):
+        btn = tk.Button(
+            suggestion_frame,
+            text=w,
+            width=10,
+            command=lambda x=w: apply_suggestion(x)
+        )
+        btn.grid(row=0, column=len(suggestion_buttons), padx=5)
+        suggestion_buttons.append(btn)
 
-skeleton_label = tk.Label(main_frame)
-skeleton_label.grid(row=0, column=1, padx=10)
+btn_frame = tk.Frame(info_frame)
+btn_frame.pack(pady=20)
 
-output_frame = tk.Frame(root)
-output_frame.pack(pady=10)
+tk.Button(
+    btn_frame,
+    text="Delete",
+    width=10,
+    command=delete_last_char
+).grid(row=0, column=2, padx=10)
 
-char_var = tk.StringVar(value="Character:")
-sent_var = tk.StringVar(value="Sentence:")
+tk.Button(btn_frame, text="Clear", width=10, command=clear_sentence)\
+    .grid(row=0, column=0, padx=10)
+tk.Button(btn_frame, text="Speak", width=10, command=speak_sentence)\
+    .grid(row=0, column=1, padx=10)
 
-tk.Label(output_frame, textvariable=char_var, font=("Arial", 14)).pack(anchor="w")
-tk.Label(output_frame, textvariable=sent_var, font=("Arial", 14)).pack(anchor="w")
-
-btn_frame = tk.Frame(output_frame)
-btn_frame.pack(pady=5)
-
-tk.Button(btn_frame, text="Clear", width=10, command=clear_text).pack(side="left", padx=5)
-tk.Button(btn_frame, text="Speak", width=10, command=play_sound).pack(side="left", padx=5)
-
-# =============================
-# Skeleton Canvas
-# =============================
-
-def get_skeleton_frame(results, w=480, h=480):
-    canvas = np.ones((h, w, 3), dtype=np.uint8) * 255
-    if results.multi_hand_landmarks:
-        for hand in results.multi_hand_landmarks:
-            mp_drawing.draw_landmarks(
-                canvas,
-                hand,
-                mp_hands.HAND_CONNECTIONS
-            )
-    return canvas
-
-# =============================
-# Webcam + ML Loop (GUI-safe)
-# =============================
-
+# ===============================
+# VIDEO STATE
+# ===============================
 cap = cv2.VideoCapture(0)
+last_pred = None
+stable_count = 0
+last_accept_time = 0
 
-def update_gui():
-    global last_prediction, same_pred_count, display_text
-    global frame_count, fps, start_time, last_accept_time
-    global sentence, current_word
+# ===============================
+# MAIN LOOP
+# ===============================
+def update():
+    global last_pred, stable_count, last_accept_time, sentence
 
     ret, frame = cap.read()
     if not ret:
-        root.after(10, update_gui)
+        root.after(10, update)
         return
 
     frame = cv2.flip(frame, 1)
-    h, w, _ = frame.shape
+    res = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = hands.process(rgb)
-    prediction = None
+    final_pred = None
+    confidence = 0.0
 
-    if results.multi_hand_landmarks:
-        hand = results.multi_hand_landmarks[0]
+    if res.multi_hand_landmarks:
+        xs, ys = [], []
+        h, w, _ = frame.shape
 
-        xs = [lm.x for lm in hand.landmark]
-        ys = [lm.y for lm in hand.landmark]
+        for hand in res.multi_hand_landmarks:
+            for lm in hand.landmark:
+                xs.append(lm.x)
+                ys.append(lm.y)
 
-        # center of hand
-        cx = int(np.mean(xs) * w)
-        cy = int(np.mean(ys) * h)
+        x1 = max(0, int(min(xs) * w) - 40)
+        y1 = max(0, int(min(ys) * h) - 40)
+        x2 = min(w, int(max(xs) * w) + 40)
+        y2 = min(h, int(max(ys) * h) + 40)
 
-        # square size based on hand span
-        size = int(
-            max(
-                (max(xs) - min(xs)) * w,
-                (max(ys) - min(ys)) * h
+        roi = frame[y1:y2, x1:x2]
+
+        for hand in res.multi_hand_landmarks:
+            mp_draw.draw_landmarks(
+                frame, hand, mp_hands.HAND_CONNECTIONS,
+                mp_draw.DrawingSpec(color=(0,0,255), thickness=2, circle_radius=4),
+                mp_draw.DrawingSpec(color=(255,255,255), thickness=2)
             )
-        ) + 2 * pad
 
-        x1 = max(0, cx - size // 2)
-        y1 = max(0, cy - size // 2)
-        x2 = min(w, cx + size // 2)
-        y2 = min(h, cy + size // 2)
+        img_conf = 0
+        if roi.size > 0:
+            img = cv2.resize(roi, (IMG_SIZE, IMG_SIZE))
+            probs = image_model.predict(
+                np.expand_dims(img / 255.0, axis=0), verbose=0
+            )[0]
+            img_conf = probs.max()
+            img_pred = CLASSES[np.argmax(probs)]
+
+        lm_probs = landmark_model.predict(
+            preprocess_landmarks(res.multi_hand_landmarks), verbose=0
+        )[0]
+        lm_conf = lm_probs.max()
+        lm_pred = CLASSES[np.argmax(lm_probs)]
+
+        if lm_conf >= LANDMARK_CONF_THRESH:
+            final_pred, confidence = lm_pred, lm_conf
+        elif img_conf >= IMAGE_CONF_THRESH:
+            final_pred, confidence = img_pred, img_conf
+
+        if final_pred:
+            cv2.putText(
+                frame,
+                f"Gesture: {final_pred}",
+                (15, 35),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (0, 0, 0),   # BLACK
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"Confidence: {confidence*100:.1f}%",
+                (15, 65),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.75,
+                (0, 0, 0),   # BLACK
+                2
+            )
 
 
-        if prediction == last_prediction:
-            same_pred_count += 1
-        else:
-            same_pred_count = 0
-        last_prediction = prediction
+    if final_pred == last_pred:
+        stable_count += 1
+    else:
+        stable_count = 0
+    last_pred = final_pred
 
-        if (
-            same_pred_count >= required_stability_frames and
-            time.time() - last_accept_time > cooldown_time and
-            prediction is not None
-        ):
-            if prediction == "SPACE":
-                sentence += current_word + " "
-                current_word = ""
-            elif prediction == "DELETE":
-                current_word = current_word[:-1]
-            elif prediction == "CLEAR":
-                sentence = ""
-                current_word = ""
-            else:
-                current_word += prediction
-
-            display_text = sentence + current_word
+    if final_pred and stable_count >= STABLE_FRAMES:
+        if time.time() - last_accept_time > COOLDOWN_TIME:
             last_accept_time = time.time()
-            same_pred_count = 0
+            stable_count = 0
 
-    # ================= FPS =================
-    frame_count += 1
-    if time.time() - start_time >= 1:
-        fps = frame_count
-        frame_count = 0
-        start_time = time.time()
+            if final_pred == SPACE_TOKEN:
+                if sentence and not sentence.endswith(" "):
+                    sentence += " "
+            elif final_pred == CLEAR_TOKEN:
+                sentence = ""
+            else:
+                sentence += final_pred
 
-    # ================= GUI Updates =================
+            char_var.set(f"Detected Gesture : {final_pred}")
+            sent_var.set(f"Sentence : {sentence}")
+            update_suggestions()
 
-    cam_img = ImageTk.PhotoImage(Image.fromarray(rgb))
-    cam_label.imgtk = cam_img
-    cam_label.configure(image=cam_img)
+    img = ImageTk.PhotoImage(Image.fromarray(
+        cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    ))
+    cam_label.imgtk = img
+    cam_label.configure(image=img)
+    info_frame = tk.Frame(root)
+    info_frame.pack(pady=20)
 
-    skeleton = get_skeleton_frame(results)
-    skel_img = ImageTk.PhotoImage(Image.fromarray(skeleton))
-    skeleton_label.imgtk = skel_img
-    skeleton_label.configure(image=skel_img)
 
-    char_var.set(f"Character: {last_prediction or ''}")
-    sent_var.set(f"Sentence: {display_text}")
+    root.after(10, update)
 
-    root.after(10, update_gui)
-
-# =============================
-# Start
-# =============================
-
-update_gui()
+# ===============================
+# START
+# ===============================
+update()
 root.mainloop()
-
 cap.release()
 hands.close()
