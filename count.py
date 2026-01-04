@@ -1,7 +1,7 @@
 import os
 from collections import Counter
 
-DATASET_DIR = "C:/SumV/SignLanguageToText/dataSet"
+DATASET_DIR = "C:\SumV\SignLanguageToText\DataSet"
 
 counts = {}
 for cls in os.listdir(DATASET_DIR):

@@ -11,8 +11,9 @@
 A
 B
 C
-Clear
+CLEAR
 D
+DONE
 E
 F
 G
@@ -20,12 +21,13 @@ Goodbye
 H
 Hello
 I
-I Love You
+ILY
 J
 K
 L
 M
 N
+NEXT
 No
 O
 P
@@ -33,8 +35,8 @@ Please
 Q
 R
 S
+SPACE
 Sorry
-Space
 T
 Thankyou
 U
