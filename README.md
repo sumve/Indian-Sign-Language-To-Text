@@ -1,7 +1,8 @@
 # Indian Sign Language (ISL) to Text Recognition
 
-A real-time **Indian Sign Language (ISL) to Text** recognition system that translates hand gestures into readable text using computer vision and deep learning.  
-The system is **glove-free**, runs on a standard webcam, and is optimized for **CPU-based real-time inference**.
+This project is a real-time **Sign Language to Text Conversion** system designed to improve accessibility for people who communicate using sign language. The system captures hand gestures through a webcam, recognizes the corresponding sign using deep learning & computer vision, and converts it into readable text. It also provides word suggestions and text-to-speech output to enhance usability.
+
+The application is built as a desktop GUI and runs completely **offline**.The system is glove-free, runs on a standard webcam, and is optimized for **CPU-based real-time inference**.
 
 ---
 
@@ -14,17 +15,23 @@ Stability and cooldown logic are applied to ensure accurate and readable text ou
 
 ## ✨ Features
 
-- **49-class gesture recognition**
+- **47-class gesture recognition: Images & Landmarks(.npy)**
   - Alphabets: A–Z  
   - Digits: 0–9  
-  - Control gestures: `SPACE`, `DELETE`, `CLEAR`, `DONE`, `NEXT`
+  - Control gestures: `SPACE`, `DELETE`, `CLEAR`
 - Real-time webcam inference
 - Multi-hand landmark-driven ROI extraction
 - Gesture stabilization using consecutive-frame validation
 - Cooldown policy to avoid repeated predictions
 - Desktop GUI using Tkinter
-- Optional **Text-to-Speech (TTS)** output using gTTS
+- Offline **Text-to-Speech (TTS)** output using pTTS
 - Complete pipeline: data collection → training → inference
+- Hybrid prediction pipeline utilising both images & numpy arrays of hand landmarks for better accuracy.
+- Stable prediction logic to avoid flickering outputs
+- Sentence formation from continuous gestures
+- Word suggestions to assist faster text completion
+- Delete (backspace) and Clear controls for easy correction
+- 300 images per class with two distinct people & varied lighting conditions.
 
 ---
 
@@ -37,14 +44,14 @@ Stability and cooldown logic are applied to ensure accurate and readable text ou
 - **AdamW + Cosine Decay** – Optimized training strategy  
 - **scikit-learn** – Class balancing  
 - **Tkinter** – Desktop GUI  
-- **gTTS** – Text-to-speech synthesis  
+- **pTTS** – Text-to-speech synthesis  
 
 ---
 
 ## 📊 Dataset
 
 - Self-collected static-frame ISL dataset
-- ~100 images per class (≈ 4900 images total)
+- ~300 images per class (≈ 14100 images total)
 - 80/20 training–validation split
 - Strong data augmentation:
   - Rotation, zoom, shear
@@ -94,15 +101,14 @@ dataSet/
 ├── SPACE/
 ├── CLEAR/
 ├── DELETE/
-├── DONE/
-├── NEXT/
 ├── Hello/
 ├── Thankyou/
 ├── Please/
 ├── Sorry/
 ├── Yes/
 ├── No/
-└── ILY/
+├── Goodbye/
+└── I Love You/
 ```
 
 ## Usage
@@ -111,11 +117,11 @@ dataSet/
 
 Run the dataset collection script:
 
-python collect_data.py
+python new_dataset.py
 
-- Automatically creates class folders inside `dataSet/`
+- Automatically creates class folders inside `DataSet/`
 - Captures padded hand ROIs using MediaPipe landmarks
-- Saves resized gesture images for each class
+- Saves resized gesture images & landmarks (class_lm) for each class
 
 ---
 
@@ -123,7 +129,8 @@ python collect_data.py
 
 Train the classifier using transfer learning:
 
-python train.py
+python train_new.py
+python landmark_train.py
 
 Training details:
 - Transfer learning using MobileNetV2
@@ -132,14 +139,14 @@ Training details:
 - Progressive fine-tuning
 - Early stopping and model checkpointing
 - Best model saved as `models/model.h5`
-
+- Best landmark model saved as `models/landmark_model.h5`
 ---
 
 ### 3. Run Real-Time Inference
 
 Start real-time sign recognition:
 
-python webcam.py
+python gui.py
 
 - Webcam feed is mirrored
 - Unified ROI across detected hands
@@ -150,14 +157,13 @@ python webcam.py
 
 ### 4. Text-to-Speech Output
 
-- Click the **Play Sound** button in the GUI to hear the detected text using TTS
+- Click the **Speak** button in the GUI to hear the detected text using pTTS
 
 ## Results
 
 - Validation accuracy: ~98–99%
 - Real-time inference speed: ~18–25 FPS on CPU
 - Stable predictions for static ISL gestures
-- Majority of errors occur between visually similar hand shapes
 - Stability and cooldown logic significantly reduce false positives
 
 ## Project Structure
@@ -166,18 +172,24 @@ A breakdown of the scripts and directories included in this project:
 
 ```text
 .
-├── collect_data.py       # Dataset collection script
-├── train.py              # Model training script
-├── webcam.py             # Real-time inference + GUI
-├── plot.py               # Training curves visualization
-├── layers.py             # Model architecture inspection
-├── count.py              # Dataset class distribution check
-├── folders.py            # Dataset folder initialization
-├── models/               # Directory for saved models
-│   ├── model.h5          # Trained model weights
-│   └── classes.txt       # Class label mapping
-├── dataSet/              # Gesture dataset (A–Z, 0–9, control gestures)
-└── README.md             # Project documentation
+├── __pycache__/             # Python cache files
+├── DataSet/                 # Photos & Landmarks Dataset
+├── ISLData/                 # Indian Sign Language data (Kaggle)
+├── models/                  # Active/latest trained models
+├── models_old/              # Previous model iterations
+├── new/                     # Current development directory
+│   ├── check_lm.py          # Landmarks verification
+│   ├── gui.py               # Graphical User Interface implementation
+│   ├── hybrid_text.py       # Hybrid text processing logic
+│   ├── hybrid.py            # Main hybrid model logic
+│   ├── landmark_tra...      # Landmark training script
+│   ├── new_dataset....      # Dataset preprocessing script
+│   ├── train_new.py         # Updated training pipeline
+├── old/                     # Legacy code/scripts
+├── venv/                    # Primary virtual environment
+├── venv2/                   # Alternative/testing virtual environment
+├── .gitignore               # Files excluded from Git tracking
+└── README.md                # Project documentation
 ```
 
 ## Future Improvements
